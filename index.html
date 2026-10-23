@@ -1,0 +1,681 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI 编码审核 · 抽屉页</title>
+<style>
+  :root {
+    --primary: #2b5ce0; --primary-light: #eaf0fd;
+    --green: #12a150; --green-bg: #e8f7ee;
+    --orange: #d97a00; --orange-bg: #fff7e8;
+    --red: #e02020; --red-bg: #fdecec;
+    --text-1: #1f2329; --text-2: #51565f; --text-3: #8f959e;
+    --border: #e5e6eb; --bg: #f2f3f5;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: "PingFang SC", "Microsoft YaHei", -apple-system, sans-serif;
+    background: var(--bg); color: var(--text-1);
+    height: 100vh; overflow: auto;
+  }
+
+  /* ===== 背景：原始报关单草稿 ===== */
+  .page { padding: 16px 28px 40px; }
+  .topbar {
+    height: 44px; background: #fff; border-radius: 6px; display: flex;
+    align-items: center; padding: 0 16px; gap: 16px; font-size: 13px;
+    color: var(--text-2); box-shadow: 0 1px 4px rgba(0,0,0,.04);
+  }
+  .topbar .logo { font-weight: 600; color: var(--red); }
+  .page-title { margin: 14px 2px 10px; font-size: 15px; font-weight: 600; display: flex; align-items: center; gap: 10px; }
+  .sync-banner {
+    display: none; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 400;
+    color: var(--green); background: var(--green-bg); border: 1px solid #bfe8cd;
+    padding: 4px 10px; border-radius: 4px;
+  }
+  .sync-banner.show { display: inline-flex; }
+
+  .panel { background: #fff; border-radius: 6px; padding: 14px 16px; box-shadow: 0 1px 4px rgba(0,0,0,.04); }
+  .panel + .panel { margin-top: 12px; }
+  .form-row { display: flex; gap: 24px; margin-bottom: 12px; flex-wrap: wrap; }
+  .form-row:last-child { margin-bottom: 0; }
+  .field { flex: 1; min-width: 160px; }
+  .field .lb { font-size: 12px; color: var(--text-3); margin-bottom: 4px; }
+  .field .val { font-size: 13px; border-bottom: 1px dashed var(--border); padding-bottom: 4px; }
+
+  /* 报关单商品明细表：品名 + 规格型号 双行（规范申报格式） */
+  .goods-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 4px; }
+  .goods-table th {
+    background: #f7f8fa; color: var(--text-3); font-weight: 500;
+    text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--border);
+  }
+  .goods-table td { padding: 9px 10px; border-bottom: 1px solid #f0f1f3; vertical-align: top; }
+  .g-name { font-weight: 500; }
+  .g-spec {
+    margin-top: 3px; font-size: 12px; color: var(--text-2); line-height: 1.6;
+    font-family: "SF Mono", Menlo, Consolas, monospace; word-break: break-all;
+  }
+  .code-cell {
+    font-family: "SF Mono", Menlo, Consolas, monospace; padding: 4px 8px;
+    border: 1px solid var(--border); border-radius: 4px; display: inline-flex;
+    align-items: center; gap: 6px; background: #fafbfc; flex-wrap: wrap;
+  }
+  .code-cell.changed { border-color: #7cc79b; background: var(--green-bg); color: #0e7c3e; animation: flash 1.2s ease; }
+  .code-cell .badge { font-size: 11px; background: var(--green); color: #fff; border-radius: 3px; padding: 1px 5px; }
+  .code-cell .old { font-size: 11px; color: var(--text-3); text-decoration: line-through; }
+  @keyframes flash { 0%,60% { box-shadow: 0 0 0 3px rgba(18,161,80,.25); } 100% { box-shadow: none; } }
+  /* AI 检出问题标记：红底感叹号，点击直达该商品的核验详情 */
+  .issue-icon {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 18px; height: 18px; border-radius: 50%; margin-left: 8px;
+    background: var(--red); color: #fff; font-size: 12px; font-weight: 700;
+    cursor: pointer; vertical-align: middle; flex: none;
+  }
+  .issue-icon:hover { background: #c01c1c; }
+
+  .reopen-btn {
+    position: fixed; right: 32px; top: 96px; z-index: 5; display: none;
+    align-items: center; gap: 6px; background: var(--primary); color: #fff;
+    border: none; padding: 10px 18px; border-radius: 20px; font-size: 14px;
+    cursor: pointer; box-shadow: 0 4px 12px rgba(43,92,224,.35);
+  }
+  .reopen-btn.show { display: flex; }
+
+  /* ===== 抽屉 ===== */
+  .mask { position: fixed; inset: 0; background: rgba(0,0,0,.32); z-index: 10; transition: opacity .25s; }
+  .mask.hide { opacity: 0; pointer-events: none; }
+  .drawer {
+    position: fixed; top: 0; right: 0; height: 100vh; z-index: 11;
+    width: 660px; max-width: 94vw; background: #fff; border-radius: 8px 0 0 8px;
+    box-shadow: -8px 0 24px rgba(0,0,0,.10); display: flex; flex-direction: column;
+    transition: transform .28s ease;
+  }
+  .drawer.hide { transform: translateX(105%); }
+  .d-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 20px 12px; border-bottom: 1px solid var(--border);
+  }
+  .d-title { font-size: 17px; font-weight: 600; display: flex; align-items: center; gap: 10px; }
+  .d-sub { font-size: 12px; color: var(--text-3); margin-top: 4px; font-weight: 400; }
+  .header-actions { display: flex; align-items: center; gap: 10px; }
+  .btn-reverify {
+    border: 1px solid var(--primary); background: #fff; color: var(--primary);
+    border-radius: 4px; font-size: 12.5px; padding: 5px 14px; cursor: pointer;
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .btn-reverify:hover { background: var(--primary-light); }
+  .btn-reverify:disabled { border-color: #b6c4e8; color: #8fa6dd; background: #fff; cursor: progress; }
+  .btn-reverify .spin {
+    width: 10px; height: 10px; border-radius: 50%;
+    border: 2px solid #c3d2f8; border-top-color: var(--primary);
+    animation: spin .7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .d-close { border: none; background: none; cursor: pointer; color: var(--text-3); font-size: 20px; padding: 4px 8px; border-radius: 4px; }
+  .d-close:hover { background: var(--bg); color: var(--text-1); }
+  .d-body { flex: 1; overflow-y: auto; padding: 14px 20px; }
+
+  .stat-bar { display: flex; gap: 8px; margin-bottom: 12px; font-size: 12px; color: var(--text-2); flex-wrap: wrap; }
+  .stat-bar .chip { padding: 3px 10px; border-radius: 12px; background: var(--bg); }
+  .chip.g { color: var(--green); background: var(--green-bg); }
+  .chip.o { color: var(--orange); background: var(--orange-bg); }
+  .chip.r { color: var(--red); background: var(--red-bg); }
+  .chip.b { color: var(--primary); background: var(--primary-light); }
+
+  .item-table { width: 100%; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+  .item-table table { width: 100%; border-collapse: collapse; font-size: 12.5px; table-layout: fixed; }
+  .item-table th {
+    background: #f7f8fa; color: var(--text-3); font-weight: 500;
+    text-align: left; padding: 8px 10px; white-space: nowrap;
+  }
+  .item-table tr.item { cursor: pointer; }
+  .item-table tr.item:hover td { background: #f7f9ff; }
+  .item-table tr.item.active td { background: var(--primary-light); }
+  .item-table td { padding: 8px 10px; border-top: 1px solid var(--border); vertical-align: top; }
+  .code-mono { font-family: "SF Mono", Menlo, Consolas, monospace; }
+  .status-tag { display: inline-block; font-size: 11.5px; padding: 1px 8px; border-radius: 3px; white-space: nowrap; }
+  .st-pass { color: var(--green); background: var(--green-bg); }
+  .st-warn { color: var(--orange); background: var(--orange-bg); }
+  .st-fail { color: var(--red); background: var(--red-bg); }
+  .st-fixed { color: var(--primary); background: var(--primary-light); }
+  .mark-fixed { color: var(--primary); font-size: 11px; margin-right: 2px; }
+  .spec-line {
+    margin-top: 3px; font-size: 11px; color: var(--text-3); line-height: 1.55;
+    font-family: "SF Mono", Menlo, Consolas, monospace; word-break: break-all;
+  }
+
+  .sec-title { font-size: 13px; font-weight: 600; margin: 16px 0 8px; display: flex; align-items: center; gap: 6px; }
+  .sec-title::before { content: ""; width: 3px; height: 12px; background: var(--primary); border-radius: 2px; }
+  .sec-hint { font-weight: 400; font-size: 11.5px; color: var(--text-3); }
+
+  /* 说明气泡：移入 / 点击 icon 显示 */
+  .info-icon {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 14px; height: 14px; margin-left: 2px; border-radius: 50%;
+    border: 1px solid #c9cdd4; color: var(--text-3);
+    font-size: 10px; font-weight: 400; line-height: 1;
+    cursor: help; position: relative; user-select: none;
+  }
+  .info-icon:hover, .info-icon:focus, .info-icon.open {
+    color: var(--primary); border-color: var(--primary); outline: none;
+  }
+  .info-icon::after {
+    content: attr(data-tip);
+    position: absolute; bottom: 160%; left: 0; transform: translateY(4px);
+    background: rgba(31,35,41,.94); color: #fff; font-size: 11.5px; line-height: 1.6;
+    padding: 6px 10px; border-radius: 4px; width: max-content; max-width: 240px;
+    white-space: normal; text-align: left; font-weight: 400;
+    opacity: 0; pointer-events: none; transition: opacity .15s, transform .15s; z-index: 30;
+  }
+  .info-icon::before {
+    content: ""; position: absolute; bottom: 130%; left: 4px; transform: translateY(4px);
+    border: 5px solid transparent; border-top-color: rgba(31,35,41,.94);
+    opacity: 0; pointer-events: none; transition: opacity .15s; z-index: 30;
+  }
+  .info-icon:hover::after, .info-icon:focus::after, .info-icon.open::after,
+  .info-icon:hover::before, .info-icon:focus::before, .info-icon.open::before { opacity: 1; }
+  .info-icon:hover::after, .info-icon:focus::after, .info-icon.open::after { transform: translateY(0); }
+  .info-icon:hover::before, .info-icon:focus::before, .info-icon.open::before { transform: translateY(0); }
+
+  .current-box { background: #f7f9ff; border: 1px solid #dbe6fb; border-radius: 6px; padding: 12px 14px; font-size: 13px; }
+  .current-box .row { display: flex; gap: 24px; margin-bottom: 8px; flex-wrap: wrap; }
+  .current-box .row:last-child { margin-bottom: 0; }
+  .current-box .lb { color: var(--text-3); }
+  .current-box .lb b { color: var(--text-1); font-weight: 600; }
+  .code-big { font-family: "SF Mono", Menlo, Consolas, monospace; font-weight: 600; }
+
+  .keywords { display: flex; flex-wrap: wrap; gap: 8px; }
+  .kw {
+    display: inline-flex; align-items: center; gap: 6px; background: var(--bg);
+    border: 1px solid var(--border); border-radius: 4px; padding: 3px 8px;
+    font-size: 12px; cursor: default;
+  }
+  .kw .k { color: var(--text-3); }
+  .kw .v { color: var(--text-1); font-weight: 500; }
+
+  .verify-result {
+    display: flex; gap: 8px; align-items: flex-start; border: 1px solid #f8c6c6;
+    background: var(--red-bg); border-radius: 6px; padding: 10px 12px;
+    font-size: 12.5px; color: #a82626; line-height: 1.6;
+  }
+  .verify-result.warn { border-color: #f5d9a8; background: var(--orange-bg); color: #9a6200; }
+  .verify-result.pass { border-color: #bfe8cd; background: var(--green-bg); color: #0e7c3e; }
+
+  .rec-card { border: 1px solid var(--border); border-radius: 6px; padding: 12px 14px; margin-bottom: 10px; }
+  .rec-card:hover { border-color: #b9cdf6; }
+  .rec-card.best { border-color: #c3d2f8; background: #fbfcff; }
+  .rec-card.adopted { border-color: #7cc79b; background: #f6fcf8; }
+  .rec-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .rec-code { font-family: "SF Mono", Menlo, Consolas, monospace; font-weight: 700; font-size: 14px; color: var(--primary); }
+  .rec-name { font-size: 13px; font-weight: 600; }
+  .rec-head .spacer { flex: 1; }
+  .rec-desc { font-size: 12px; color: var(--text-3); margin-top: 6px; line-height: 1.6; }
+  .rec-do { color: var(--text-1); font-weight: 600; }
+  .rec-source { color: var(--text-3); }
+  .reason-tag {
+    font-size: 11.5px; color: #9a6200; background: var(--orange-bg);
+    border: 1px solid #f5d9a8; border-radius: 3px; padding: 3px 8px; white-space: nowrap;
+  }
+  .rec-foot { display: flex; align-items: center; justify-content: space-between; margin-top: 10px; gap: 10px; flex-wrap: wrap; }
+  .rec-source { font-size: 11.5px; color: var(--text-3); }
+  .btn-adopt { border: 1px solid var(--primary); background: #fff; color: var(--primary); border-radius: 4px; padding: 6px 14px; font-size: 12.5px; cursor: pointer; }
+  .btn-adopt:hover { background: var(--primary-light); }
+  .btn-adopt.on { background: var(--primary); color: #fff; border-color: var(--primary); cursor: default; }
+  .btn-undo { border: 1px solid var(--border); background: #fff; color: var(--text-2); border-radius: 4px; padding: 6px 12px; font-size: 12.5px; cursor: pointer; margin-left: 6px; }
+  .btn-undo:hover { color: var(--red); border-color: #f0b3b3; background: var(--red-bg); }
+
+  .d-footer { border-top: 1px solid var(--border); padding: 12px 20px; display: flex; justify-content: space-between; align-items: center; }
+  .d-footer .tip { font-size: 12px; color: var(--text-3); }
+  .d-footer .btns { display: flex; gap: 10px; }
+  .btn { border-radius: 4px; font-size: 13px; padding: 8px 18px; cursor: pointer; border: 1px solid var(--border); background: #fff; color: var(--text-2); }
+  .btn:hover { color: var(--primary); border-color: var(--primary); }
+  .btn.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
+  .btn.primary:hover { background: #2149bd; }
+  .btn.primary:disabled { background: #b6c4e8; border-color: #b6c4e8; cursor: not-allowed; }
+
+  .toast {
+    position: fixed; top: 72px; left: 50%; transform: translateX(-50%) translateY(-16px);
+    background: rgba(31,35,41,.92); color: #fff; font-size: 13px; padding: 9px 18px;
+    border-radius: 6px; z-index: 99; opacity: 0; pointer-events: none; transition: all .25s;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+</style>
+</head>
+<body>
+
+<!-- ===== 原始报关单草稿 ===== -->
+<div class="page">
+  <div class="topbar">
+    <span class="logo">中国制造 · 外贸综合服务平台</span>
+    <span>通关事务 · 报关申报</span>
+    <span>3029市场采购-4717324&amp;613675000001</span>
+  </div>
+
+  <div class="page-title">
+    出口报关单（申报草稿）
+    <span class="sync-banner" id="syncBanner"></span>
+  </div>
+
+  <div class="panel">
+    <div class="form-row">
+      <div class="field"><div class="lb">境内货源地</div><div class="val">46019 珠海经济特区</div></div>
+      <div class="field"><div class="lb">成交方式</div><div class="val">FOB</div></div>
+      <div class="field"><div class="lb">合同编号</div><div class="val">HT2026-1022-008</div></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="sec-title" style="margin-top:2px">商品明细</div>
+    <table class="goods-table">
+      <thead>
+        <tr>
+          <th style="width:48px">序号</th>
+          <th style="width:170px">商品编号</th>
+          <th>商品名称、规格型号</th>
+          <th style="width:100px">总价(USD)</th>
+        </tr>
+      </thead>
+      <tbody id="formTbody"></tbody>
+    </table>
+  </div>
+</div>
+
+<button class="reopen-btn" id="reopenBtn" onclick="openDrawer()">🤖 打开 AI 编码审核</button>
+
+<div class="mask" id="mask" onclick="closeDrawer()"></div>
+
+<!-- ===== 抽屉 ===== -->
+<div class="drawer" id="drawer">
+  <div class="d-header">
+    <div>
+      <div class="d-title">AI 编码审核</div>
+      <div class="d-sub">报关单号 3029市场采购-4717324 · 共 <span id="sumTotal">0</span> 项商品 · 最近核验 <span id="lastVerify">2026-10-22 14:32</span></div>
+    </div>
+    <div class="header-actions">
+      <button class="btn-reverify" id="reverifyBtn" onclick="reverify()">重新核验</button>
+      <button class="d-close" onclick="closeDrawer()" title="关闭">✕</button>
+    </div>
+  </div>
+
+  <div class="d-body">
+    <div class="stat-bar" id="statBar"></div>
+
+    <div class="item-table">
+      <table>
+        <colgroup>
+          <col style="width:38px"><col style="width:112px"><col><col style="width:78px"><col style="width:165px">
+        </colgroup>
+        <thead>
+          <tr>
+            <th>序号</th>
+            <th>商品编号</th>
+            <th>商品名称、规格型号</th>
+            <th>核验状态</th>
+            <th>主要说明</th>
+          </tr>
+        </thead>
+        <tbody id="itemTbody"></tbody>
+      </table>
+    </div>
+
+    <div class="detail" id="detailBox"></div>
+  </div>
+
+  <div class="d-footer">
+    <div class="tip" id="footerTip">AI 核验结果仅供参考，最终以海关审定为准</div>
+    <div class="btns">
+      <button class="btn primary" id="submitBtn" onclick="submitCodes()" disabled>保存 / 提交</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ============ 数据 ============
+// spec：规格型号，按规范申报格式打印（品牌类型代码|出口享惠情况代码|申报要素…）
+const items = [
+  {
+    no: 1, declaredCode: "8207501000",
+    name: "合金钢钻头",
+    spec: "0|0|合金钢钻头|工业用|直径≤10mm|无品牌|无型号",
+    factors: [["用途","金属钻孔用（工业）"],["材质","合金钢"],["规格","直径≤10mm"],["品牌","无品牌"],["型号","无型号"]],
+    price: "12,950.00", status: "pass",
+    note: "编码与品名、材质匹配",
+    result: { type: "pass", text: "申报编码 8207501000 与商品描述（带旋转工作面的合金钢钻头，工业用）匹配，归类依据：HS 8207 税则注释。" },
+    recs: []
+  },
+  {
+    no: 2, declaredCode: "8205400000",
+    name: "手动螺丝刀",
+    spec: "0|0|手动螺丝刀|钢制|6件套|无品牌|无型号",
+    factors: [["用途","拧紧螺丝用"],["材质","钢制"],["规格","6件套"],["品牌","无品牌"],["型号","无型号"]],
+    price: "8,760.00", status: "pass",
+    note: "编码与品名、用途匹配",
+    result: { type: "pass", text: "申报编码 8205400000 与商品描述匹配，手动螺丝刀归入 8205.40，无需调整。" },
+    recs: []
+  },
+  {
+    no: 3, declaredCode: "6402992000",
+    name: "塑料面运动鞋靴",
+    spec: "0|0|运动鞋靴|塑料面|橡塑底|无品牌|无货号",
+    factors: [["用途","运动穿着"],["鞋面材质","塑料"],["鞋底材质","橡胶"],["品牌","无品牌"],["货号","无货号"]],
+    price: "21,120.00", status: "warn",
+    note: "鞋面材质描述笼统，建议补充申报要素",
+    result: { type: "warn", text: "申报编码 6402992000 方向正确，但「鞋面材质」为归类关键要素，当前规格型号仅写「塑料面」，建议补充成分比例后重报。" },
+    recs: [
+      { code: "6402992090", name: "其他橡塑底运动鞋靴", match: "mid", reason: "补充鞋面材质构成后可维持", desc: "补充鞋面材质构成（如：鞋面 100% 聚氯乙烯）后可维持该编码。", source: "《规范申报目录》6402" }
+    ]
+  },
+  {
+    no: 4, declaredCode: "8543709990",
+    name: "电动玩具车",
+    spec: "0|0|电动玩具车|塑料及金属|电池驱动|可遥控|无品牌|无货号",
+    factors: [["用途","儿童娱乐"],["材质","塑料及金属"],["动力","电池驱动（含锂电池）"],["功能","可遥控"],["品牌","无品牌"],["型号","CT-880"]],
+    price: "9,300.00", status: "fail",
+    note: "电动玩具应归入 9503，与现编码不符",
+    result: { type: "fail", text: "申报编码 8543709990（其他电气设备）与商品实际用途不符：电动玩具应优先归入品目 9503（玩具），请按推荐编码调整。" },
+    recs: [
+      { code: "9503008900", name: "其他带动力装置的玩具", match: "high", reason: "电动玩具优先归入玩具类目", desc: "电动玩具车（可遥控、含锂电池）按玩具归类，归入 9503 项下。", source: "《规范申报目录》9503" },
+      { code: "8543709990", name: "其他未列名电气设备", match: "mid", reason: "兜底税号，不建议采纳", desc: "仅当商品主要功能为非玩具用途（如工业演示设备）时方可归入。", source: "兜底税号，不建议采纳" }
+    ]
+  },
+  {
+    no: 5, declaredCode: "3926909090",
+    name: "汽车烟雾剂",
+    spec: "0|0|汽车烟雾剂|石油醚及推进剂|气雾罐装|无品牌|无货号",
+    factors: [["用途","汽车清洁养护"],["成分","石油醚及推进剂"],["包装","气雾罐装"],["品牌","无品牌"],["货号","无货号"]],
+    price: "7,380.00", status: "fail",
+    note: "塑料制品编码与气雾剂商品不符，存在危险品瞒报风险",
+    result: { type: "fail", text: "申报编码 3926909090（其他塑料制品）仅描述包装容器，未反映商品实质：烟雾剂为化学品制剂且含易燃成分，按塑料制品申报存在危险品瞒报风险，需调整并补充 MSDS。" },
+    recs: [
+      { code: "3405900000", name: "玻璃或金属用的光洁剂、擦洗膏", match: "high", reason: "按制剂本身归类，优先采纳", desc: "汽车用烟雾清洁/上光剂按制剂本身归类，归入品目 3405 项下。法定计量单位为千克，需换算。", source: "《规范申报目录》3405" },
+      { code: "3824999990", name: "其他未列名化学工业及相关产品", match: "mid", reason: "需附成分说明后确认", desc: "若主要功能为除雾/防雾等化学处理，可归入 3824 项下，需附成分说明。", source: "视成分而定，需附 MSDS" }
+    ]
+  },
+  {
+    no: 6, declaredCode: "7326909000",
+    name: "钢铁制收纳箱",
+    spec: "0|0|收纳箱|钢铁制|表面喷塑|40×30×25cm|无品牌|无货号",
+    factors: [["用途","家用储物"],["材质","钢铁制"],["表面处理","喷塑"],["规格","40×30×25cm"],["品牌","无品牌"],["货号","无货号"]],
+    price: "13,800.00", status: "warn",
+    note: "需确认是否归入家具类目 9403",
+    result: { type: "warn", text: "申报编码 7326909000（其他钢铁制品）与「家用收纳家具」存在归类交叉：落地式承重储物家具应归入 9403；便携式储物盒可维持现编码。" },
+    recs: [
+      { code: "9403200000", name: "其他金属家具", match: "mid", reason: "落地式承重储物属家具", desc: "落地式金属储物柜/收纳家具归入 9403 项下，需确认商品结构。", source: "《规范申报目录》9403" },
+      { code: "7326909000", name: "其他非机器用钢铁制品", match: "high", reason: "便携式非家具结构可维持", desc: "便携式、非家具结构的钢铁收纳盒维持现编码即可。", source: "确认商品形态后采纳" }
+    ]
+  },
+  {
+    no: 7, declaredCode: "4019909900",
+    name: "不锈钢铲/刀",
+    spec: "0|0|铲/刀|不锈钢|木柄|园艺用|无品牌|无型号",
+    factors: [["用途","园艺用"],["材质","不锈钢"],["柄材质","木"],["品牌","无品牌"],["型号","无型号"]],
+    price: "5,580.00", status: "fail",
+    note: "橡胶制品编码明显错误，建议更正申报",
+    result: { type: "fail", text: "申报编码 4019909900（其他硫化橡胶制品）与商品材质完全不符：该商品为不锈钢制园艺工具，属金属手工工具范畴。当前归类将导致税率与监管条件错误，建议按以下推荐编码更正申报。" },
+    recs: [
+      { code: "8201400090", name: "其他手工用镰刀、砍刀等农业/园艺用刀具", match: "high", reason: "园艺用手工具，归类首选", desc: "不锈钢铲/刀，带柄，园艺用手工具，归入品目 8201 项下。法定计量单位为千克。", source: "《规范申报目录》8201" },
+      { code: "8205590000", name: "其他手工工具（未列名）", match: "mid", reason: "形态接近挖掘工具时备选", desc: "若商品形态更接近铲土/挖掘工具而非切削刀具，可归入 8205 项下。", source: "视具体形态而定" }
+    ]
+  }
+];
+
+items.forEach(it => {
+  it.adoptedIdx = null;
+  it.effCode = it.declaredCode;
+  it.originStatus = it.status;
+  it.originNote = it.note;
+  it.synced = false;
+});
+
+let currentIdx = 6;
+let lastVerify = "2026-10-22 14:32";
+function nowStamp() {
+  const d = new Date(), p = n => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+// ============ 工具 ============
+const $ = id => document.getElementById(id);
+function toast(msg) {
+  const t = $("toast");
+  t.textContent = msg; t.classList.add("show");
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => t.classList.remove("show"), 2400);
+}
+const stText = { pass: "通过", warn: "疑点", fail: "不通过", fixed: "已修正" };
+const stClass = { pass: "st-pass", warn: "st-warn", fail: "st-fail", fixed: "st-fixed" };
+const adoptedCount = () => items.filter(i => i.adoptedIdx !== null).length;
+
+// ============ 渲染：原始表单 ============
+function renderForm() {
+  $("formTbody").innerHTML = items.map((it, i) => {
+    const hasIssue = it.adoptedIdx === null && !it.synced && it.status !== "pass";
+    return `
+    <tr>
+      <td>${it.no}</td>
+      <td>
+        <span class="code-cell ${it.synced ? "changed" : ""}" id="formCode${it.no}">
+          ${it.synced ? `<span class="badge">已修正</span><span class="old">${it.declaredCode}</span>` : ""}
+          <span class="code-mono">${it.effCode}</span>
+        </span>
+        ${hasIssue ? `<span class="issue-icon" title="AI 核验发现该商品编码存在问题，点击查看" onclick="openDrawer();selectItem(${i})">!</span>` : ""}
+      </td>
+      <td>
+        <div class="g-name">${it.name}</div>
+        <div class="g-spec">${it.spec}</div>
+      </td>
+      <td>${it.price}</td>
+    </tr>`;
+  }).join("");
+}
+
+// ============ 渲染：抽屉 ============
+function renderStat() {
+  const c = {
+    total: items.length,
+    pass: items.filter(i => i.adoptedIdx === null && i.status === "pass").length,
+    warn: items.filter(i => i.adoptedIdx === null && i.status === "warn").length,
+    fail: items.filter(i => i.adoptedIdx === null && i.status === "fail").length,
+    fixed: adoptedCount()
+  };
+  $("sumTotal").textContent = c.total;
+  $("statBar").innerHTML =
+    `<span class="chip">共 ${c.total} 项商品</span>
+     <span class="chip g">✔ 通过 ${c.pass}</span>
+     <span class="chip o">⚠ 疑点 ${c.warn}</span>
+     <span class="chip r">✖ 不通过 ${c.fail}</span>
+     <span class="chip b">▣ 已修正 ${c.fixed}</span>`;
+}
+
+function renderTable() {
+  $("itemTbody").innerHTML = items.map((it, i) => {
+    const adopted = it.adoptedIdx !== null;
+    return `
+    <tr class="item ${i === currentIdx ? "active" : ""}" onclick="selectItem(${i})">
+      <td>${it.no}</td>
+      <td class="code-mono">${adopted ? '<span class="mark-fixed">[正]</span>' : ""}${it.effCode}</td>
+      <td>
+        <div>${it.name}</div>
+        <div class="spec-line">${it.spec}</div>
+      </td>
+      <td><span class="status-tag ${stClass[adopted ? "fixed" : it.status]}">${stText[adopted ? "fixed" : it.status]}</span></td>
+      <td style="color:var(--text-3);font-size:11.5px">${it.note}</td>
+    </tr>`;
+  }).join("");
+}
+
+function renderDetail() {
+  const it = items[currentIdx];
+  const adopted = it.adoptedIdx !== null;
+  // 归类要素：AI 抽取的「要素名 + 要素值」，与规格型号申报要素对应
+  const kwTags = it.factors.map(([k, v]) =>
+    `<span class="kw"><span class="k">${k}</span><span class="v">${v}</span></span>`).join("");
+
+  let recHtml;
+  if (!it.recs.length) {
+    recHtml = `<div class="sec-title">推荐编码</div>
+      <div class="rec-desc" style="margin-top:4px">当前编码核验通过，无需调整。</div>`;
+  } else {
+    recHtml = `<div class="sec-title">推荐编码
+      <span class="info-icon" tabindex="0" data-tip="同一商品仅可采纳一个，采纳新的将自动替换旧的">?</span>
+    </div>` +
+      it.recs.map((r, ri) => {
+        const isOn = it.adoptedIdx === ri;
+        return `
+        <div class="rec-card ${r.match === "high" ? "best" : ""} ${isOn ? "adopted" : ""}">
+          <div class="rec-head">
+            <span class="rec-code">${r.code}</span>
+            <span class="rec-name">${r.name}</span>
+            <span class="spacer"></span>
+          </div>
+          <div class="rec-desc"><span class="rec-do">推荐理由：</span>${r.desc}<span class="rec-source">（依据：${r.source}）</span></div>
+          <div class="rec-foot">
+            <span class="reason-tag">关键决策依据：${r.reason}</span>
+            <span>
+              <button class="btn-adopt ${isOn ? "on" : ""}" onclick="${isOn ? "" : `adopt(${ri})`}" ${isOn ? "disabled" : ""}>
+                ${isOn ? "✓ 已采纳" : "采纳建议"}
+              </button>
+              ${isOn ? `<button class="btn-undo" onclick="undoAdopt()">撤回</button>` : ""}
+            </span>
+          </div>
+        </div>`;
+      }).join("");
+  }
+
+  const resultCls = adopted ? "pass" : it.result.type;
+  const resultIcon = adopted ? "✔" : (it.result.type === "fail" ? "✖" : it.result.type === "warn" ? "⚠" : "✔");
+  const resultText = adopted
+    ? `已采纳推荐编码 ${it.effCode}，核验通过。点击「保存 / 提交」后，该编码将回写至报关单商品明细。`
+    : it.result.text;
+
+  $("detailBox").innerHTML = `
+    <div class="sec-title">当前核验商品</div>
+    <div class="current-box">
+      <div class="row">
+        <span class="lb">序号：<b>${it.no}</b></span>
+        <span class="lb">商品名称：<b>${it.name}</b></span>
+      </div>
+      <div class="row">
+        <span class="lb">原始申报编码：<b class="code-big">${it.declaredCode}</b>
+          <span class="status-tag ${stClass[it.status]}">${stText[it.status]}</span>
+        </span>
+      </div>
+    </div>
+
+    <div class="sec-title">归类要素
+      <span class="info-icon" tabindex="0" data-tip="由 AI 从商品名称与规格型号中抽取，作为编码匹配依据">?</span>
+    </div>
+    <div class="keywords">${kwTags}</div>
+
+    <div class="sec-title">核验结果</div>
+    <div class="verify-result ${resultCls}">
+      <span>${resultIcon}</span><span>${resultText}</span>
+    </div>
+
+    ${recHtml}
+  `;
+}
+
+function renderFooter() {
+  const n = adoptedCount();
+  $("submitBtn").disabled = n === 0;
+  $("submitBtn").textContent = n ? `保存 / 提交（${n}）` : "保存 / 提交";
+  $("footerTip").textContent = n
+    ? `已修正 ${n} 项待写入报关单商品明细`
+    : "AI 核验结果仅供参考，最终以海关审定为准";
+}
+
+function renderAll() { renderStat(); renderTable(); renderDetail(); renderFooter(); }
+
+// ============ 交互 ============
+function selectItem(i) { currentIdx = i; renderTable(); renderDetail(); }
+
+// 采纳：互斥，同一商品只保留一个已采纳项
+function adopt(ri) {
+  const it = items[currentIdx];
+  if (it.adoptedIdx === ri) return;
+  const before = it.effCode;                 // 变更前的编码（首次采纳为原始申报编码）
+  it.adoptedIdx = ri;
+  it.effCode = it.recs[ri].code;
+  it.note = `已采纳 AI 推荐编码 ${it.recs[ri].code}，待保存提交`;
+  renderAll();
+  toast(`第 ${it.no} 项：${before} → ${it.effCode}`);
+}
+
+// 撤回：恢复原始申报编码
+function undoAdopt() {
+  const it = items[currentIdx];
+  if (it.adoptedIdx === null) return;
+  const before = it.effCode;
+  it.adoptedIdx = null;
+  it.effCode = it.declaredCode;
+  it.status = it.originStatus;
+  it.note = it.originNote;
+  it.synced = false;
+  renderAll(); renderForm();
+  toast(`第 ${it.no} 项：${before} → ${it.effCode}`);
+}
+
+// 重新核验：按当前报关单商品表的申报要素，重新跑一遍全部商品的编码核验
+function reverify() {
+  const btn = $("reverifyBtn");
+  if (btn.disabled) return;
+  btn.disabled = true;
+  btn.innerHTML = `<span class="spin"></span>核验中…`;
+  setTimeout(() => {
+    lastVerify = nowStamp();
+    $("lastVerify").textContent = lastVerify;
+    btn.disabled = false;
+    btn.textContent = "重新核验";
+    renderAll();
+    const p = items.filter(i => i.adoptedIdx === null && i.status === "pass").length;
+    const w = items.filter(i => i.adoptedIdx === null && i.status === "warn").length;
+    const f = items.filter(i => i.adoptedIdx === null && i.status === "fail").length;
+    const fx = adoptedCount();
+    toast(`重新核验完成：通过 ${p} · 疑点 ${w} · 不通过 ${f}${fx ? ` · 已修正 ${fx}` : ""}`);
+  }, 1200);
+}
+
+// 保存/提交：把已修正的编码写回原始表单
+function submitCodes() {
+  const changed = items.filter(i => i.adoptedIdx !== null);
+  if (!changed.length) { toast("当前没有已修正的商品编码"); return; }
+  changed.forEach(it => { it.synced = true; });
+  renderForm(); renderAll();
+  const b = $("syncBanner");
+  b.textContent = `✔ 本次已回写 ${changed.length} 项修正编码（${changed.map(i => i.no + "号 " + i.declaredCode + "→" + i.effCode).join("、")}）`;
+  b.classList.add("show");
+  closeDrawer();
+  toast(`已保存：${changed.length} 项修正编码已写入报关单草稿`);
+  setTimeout(() => {
+    const el = $("formCode" + changed[0].no);
+    if (el) el.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, 320);
+}
+
+function closeDrawer() {
+  $("drawer").classList.add("hide");
+  $("mask").classList.add("hide");
+  $("reopenBtn").classList.add("show");
+}
+function openDrawer() {
+  $("drawer").classList.remove("hide");
+  $("mask").classList.remove("hide");
+  $("reopenBtn").classList.remove("show");
+}
+
+// 说明气泡：点击 icon 显示/隐藏（移入由 CSS :hover 处理）
+document.addEventListener("click", e => {
+  const ic = e.target.closest(".info-icon");
+  document.querySelectorAll(".info-icon.open").forEach(el => { if (el !== ic) el.classList.remove("open"); });
+  if (ic) ic.classList.toggle("open");
+});
+
+renderForm();
+renderAll();
+</script>
+</body>
+</html>
