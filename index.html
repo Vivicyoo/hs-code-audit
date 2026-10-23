@@ -225,6 +225,49 @@
   .btn-undo { border: 1px solid var(--border); background: #fff; color: var(--text-2); border-radius: 4px; padding: 6px 12px; font-size: 12.5px; cursor: pointer; margin-left: 6px; }
   .btn-undo:hover { color: var(--red); border-color: #f0b3b3; background: var(--red-bg); }
 
+  /* ===== 审核前确认 ===== */
+  .intro { font-size: 13px; color: var(--text-2); line-height: 1.7; margin-bottom: 12px; }
+  .intro .sub { font-size: 12px; color: var(--text-3); display: block; margin-top: 4px; }
+  .cf-table { width: 100%; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+  .cf-table table { width: 100%; border-collapse: collapse; font-size: 12.5px; table-layout: fixed; }
+  .cf-table th { background: #f7f8fa; color: var(--text-3); font-weight: 500; text-align: left; padding: 8px 10px; }
+  .cf-table td { padding: 8px 10px; border-top: 1px solid var(--border); vertical-align: top; }
+  .cf-ok { color: var(--green); font-size: 11.5px; }
+  .cf-bad { color: var(--orange); font-size: 11.5px; }
+  .cf-warn {
+    display: flex; gap: 8px; margin-top: 12px; padding: 10px 12px; border-radius: 6px;
+    border: 1px solid #f5d9a8; background: var(--orange-bg); color: #9a6200;
+    font-size: 12.5px; line-height: 1.6;
+  }
+
+  /* ===== 审核中加载面板 ===== */
+  .loading-box { padding: 28px 8px 8px; text-align: center; }
+  .loading-ring {
+    width: 46px; height: 46px; margin: 0 auto 14px; border-radius: 50%;
+    border: 3px solid #dbe6fb; border-top-color: var(--primary);
+    animation: spin .8s linear infinite;
+  }
+  .loading-title { font-size: 14px; font-weight: 600; color: var(--text-1); }
+  .loading-step { font-size: 12.5px; color: var(--text-3); margin-top: 6px; min-height: 18px; }
+  .progress {
+    width: 100%; height: 6px; background: #eef1f6; border-radius: 3px;
+    margin: 16px 0 4px; overflow: hidden;
+  }
+  .progress-bar { height: 100%; width: 0; background: var(--primary); border-radius: 3px; transition: width .35s ease; }
+  .progress-txt { font-size: 11.5px; color: var(--text-3); }
+  .task-list { margin-top: 18px; text-align: left; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+  .task-row {
+    display: flex; align-items: center; gap: 8px; font-size: 12.5px;
+    padding: 8px 12px; border-top: 1px solid var(--border); color: var(--text-3);
+  }
+  .task-row:first-child { border-top: none; }
+  .task-row.done { color: var(--text-1); }
+  .task-row.run { color: var(--primary); background: #f7f9ff; }
+  .task-dot { width: 14px; height: 14px; border-radius: 50%; border: 1px solid var(--border); flex: none; }
+  .task-row.run .task-dot { border-color: var(--primary); border-top-color: transparent; animation: spin .7s linear infinite; }
+  .task-row.done .task-dot { background: var(--green); border-color: var(--green); }
+  .task-no { font-family: "SF Mono", Menlo, Consolas, monospace; }
+
   .d-footer { border-top: 1px solid var(--border); padding: 12px 20px; display: flex; justify-content: space-between; align-items: center; }
   .d-footer .tip { font-size: 12px; color: var(--text-3); }
   .d-footer .btns { display: flex; gap: 10px; }
@@ -290,7 +333,7 @@
   <div class="d-header">
     <div>
       <div class="d-title">AI 编码审核</div>
-      <div class="d-sub">报关单号 3029市场采购-4717324 · 共 <span id="sumTotal">0</span> 项商品 · 最近核验 <span id="lastVerify">2026-10-22 14:32</span></div>
+      <div class="d-sub">报关单号 3029市场采购-4717324 · 共 <span id="sumTotal">0</span> 项商品<span id="lastVerifyWrap"> · 最近核验 <span id="lastVerify">2026-10-22 14:32</span></span></div>
     </div>
     <div class="header-actions">
       <button class="btn-reverify" id="reverifyBtn" onclick="reverify()">重新核验</button>
@@ -299,34 +342,41 @@
   </div>
 
   <div class="d-body">
-    <div class="stat-bar" id="statBar"></div>
+    <!-- 1. 审核前确认 -->
+    <div id="confirmPanel"></div>
 
-    <div class="item-table">
-      <table>
-        <colgroup>
-          <col style="width:38px"><col style="width:112px"><col><col style="width:78px"><col style="width:165px">
-        </colgroup>
-        <thead>
-          <tr>
-            <th>序号</th>
-            <th>商品编号</th>
-            <th>商品名称、规格型号</th>
-            <th>核验状态</th>
-            <th>主要说明</th>
-          </tr>
-        </thead>
-        <tbody id="itemTbody"></tbody>
-      </table>
+    <!-- 2. 审核中 -->
+    <div id="loadingPanel" style="display:none"></div>
+
+    <!-- 3. 核验结果 -->
+    <div id="resultPanel">
+      <div class="stat-bar" id="statBar"></div>
+
+      <div class="item-table">
+        <table>
+          <colgroup>
+            <col style="width:38px"><col style="width:112px"><col><col style="width:78px"><col style="width:165px">
+          </colgroup>
+          <thead>
+            <tr>
+              <th>序号</th>
+              <th>商品编号</th>
+              <th>商品名称、规格型号</th>
+              <th>核验状态</th>
+              <th>主要说明</th>
+            </tr>
+          </thead>
+          <tbody id="itemTbody"></tbody>
+        </table>
+      </div>
+
+      <div class="detail" id="detailBox"></div>
     </div>
-
-    <div class="detail" id="detailBox"></div>
   </div>
 
   <div class="d-footer">
     <div class="tip" id="footerTip">AI 核验结果仅供参考，最终以海关审定为准</div>
-    <div class="btns">
-      <button class="btn primary" id="submitBtn" onclick="submitCodes()" disabled>保存 / 提交</button>
-    </div>
+    <div class="btns" id="footerBtns"></div>
   </div>
 </div>
 
@@ -360,6 +410,7 @@ const items = [
     no: 3, declaredCode: "6402992000",
     name: "塑料面运动鞋靴",
     spec: "0|0|运动鞋靴|塑料面|橡塑底|无品牌|无货号",
+    specIssue: "规格型号要素不完整：缺少鞋面材质成分比例，可能影响归类判定",
     factors: [["用途","运动穿着"],["鞋面材质","塑料"],["鞋底材质","橡胶"],["品牌","无品牌"],["货号","无货号"]],
     price: "21,120.00", status: "warn",
     note: "鞋面材质描述笼统，建议补充申报要素",
@@ -581,11 +632,20 @@ function renderDetail() {
 
 function renderFooter() {
   const n = adoptedCount();
-  $("submitBtn").disabled = n === 0;
-  $("submitBtn").textContent = n ? `保存 / 提交（${n}）` : "保存 / 提交";
-  $("footerTip").textContent = n
-    ? `已修正 ${n} 项待写入报关单商品明细`
-    : "AI 核验结果仅供参考，最终以海关审定为准";
+  const tip = $("footerTip");
+  const btns = $("footerBtns");
+  if (view === "confirm") {
+    tip.textContent = `共 ${items.length} 项商品待核验，确认后开始 AI 核验`;
+    btns.innerHTML = `
+      <button class="btn" onclick="closeDrawer()">返回补充</button>
+      <button class="btn primary" onclick="startVerify()">开始核验（${items.length}）</button>`;
+  } else if (view === "loading") {
+    tip.textContent = "核验过程中请勿修改商品信息";
+    btns.innerHTML = `<button class="btn primary" disabled><span class="spin" style="display:inline-block;vertical-align:-1px;margin-right:6px"></span>核验中…</button>`;
+  } else {
+    tip.textContent = n ? `已修正 ${n} 项待写入报关单商品明细` : "AI 核验结果仅供参考，最终以海关审定为准";
+    btns.innerHTML = `<button class="btn primary" onclick="submitCodes()" ${n ? "" : "disabled"}>${n ? `保存 / 提交（${n}）` : "保存 / 提交"}</button>`;
+  }
 }
 
 function renderAll() { renderStat(); renderTable(); renderDetail(); renderFooter(); }
@@ -619,25 +679,8 @@ function undoAdopt() {
   toast(`第 ${it.no} 项：${before} → ${it.effCode}`);
 }
 
-// 重新核验：按当前报关单商品表的申报要素，重新跑一遍全部商品的编码核验
-function reverify() {
-  const btn = $("reverifyBtn");
-  if (btn.disabled) return;
-  btn.disabled = true;
-  btn.innerHTML = `<span class="spin"></span>核验中…`;
-  setTimeout(() => {
-    lastVerify = nowStamp();
-    $("lastVerify").textContent = lastVerify;
-    btn.disabled = false;
-    btn.textContent = "重新核验";
-    renderAll();
-    const p = items.filter(i => i.adoptedIdx === null && i.status === "pass").length;
-    const w = items.filter(i => i.adoptedIdx === null && i.status === "warn").length;
-    const f = items.filter(i => i.adoptedIdx === null && i.status === "fail").length;
-    const fx = adoptedCount();
-    toast(`重新核验完成：通过 ${p} · 疑点 ${w} · 不通过 ${f}${fx ? ` · 已修正 ${fx}` : ""}`);
-  }, 1200);
-}
+// 重新核验：回到确认面板，重新确认待核验商品范围
+function reverify() { setView("confirm"); }
 
 // 保存/提交：把已修正的编码写回原始表单
 function submitCodes() {
@@ -665,6 +708,111 @@ function openDrawer() {
   $("drawer").classList.remove("hide");
   $("mask").classList.remove("hide");
   $("reopenBtn").classList.remove("show");
+  setView(verified ? "result" : "confirm");
+}
+
+// ============ 视图切换：确认 → 审核中 → 结果 ============
+let view = "confirm";
+let verified = false;   // 是否已完成过至少一次核验
+let runTimer = null;
+
+function setView(v) {
+  if (v === "loading" && view === "loading") return;
+  view = v;
+  $("confirmPanel").style.display = v === "confirm" ? "" : "none";
+  $("loadingPanel").style.display = v === "loading" ? "" : "none";
+  $("resultPanel").style.display = v === "result" ? "" : "none";
+  $("reverifyBtn").style.display = v === "result" ? "" : "none";
+  $("lastVerifyWrap").style.display = verified ? "" : "none";
+  if (v === "confirm") renderConfirm();
+  if (v === "result") renderAll();
+  renderFooter();
+}
+
+// ---- 1. 审核前确认：确认待核验商品范围 + 信息完整性预检 ----
+function renderConfirm() {
+  const bad = items.filter(i => i.specIssue);
+  $("sumTotal").textContent = items.length;
+  $("confirmPanel").innerHTML = `
+    <div class="intro">
+      即将核验以下 <b>${items.length}</b> 项商品的申报编码
+      <span class="sub">AI 将依据「商品名称 + 规格型号」中的申报要素与税则规则进行归类比对，请确认商品信息已填写完整</span>
+    </div>
+    <div class="cf-table">
+      <table>
+        <colgroup><col style="width:44px"><col style="width:112px"><col><col style="width:88px"></colgroup>
+        <thead><tr><th>序号</th><th>商品编号</th><th>商品名称、规格型号</th><th>信息完整性</th></tr></thead>
+        <tbody>
+          ${items.map(it => `
+            <tr>
+              <td>${it.no}</td>
+              <td class="code-mono">${it.effCode}</td>
+              <td>
+                <div>${it.name}</div>
+                <div class="spec-line">${it.spec}</div>
+              </td>
+              <td>${it.specIssue
+                ? `<span class="cf-bad">⚠ 待补充</span>`
+                : `<span class="cf-ok">✔ 完整</span>`}</td>
+            </tr>`).join("")}
+        </tbody>
+      </table>
+    </div>
+    ${bad.length ? `<div class="cf-warn">
+      <span>⚠</span>
+      <span>有 ${bad.length} 项商品信息不完整：${bad.map(i => i.no + "号 " + i.specIssue).join("；")}。补充后核验结果更准确，也可直接继续核验。</span>
+    </div>` : ""}
+  `;
+}
+
+// ---- 2. 审核中：逐项推进的加载面板 ----
+function renderLoading(doneCount, runningIdx) {
+  const pct = Math.round((doneCount / items.length) * 100);
+  const cur = runningIdx < items.length ? items[runningIdx] : null;
+  $("loadingPanel").innerHTML = `
+    <div class="loading-box">
+      <div class="loading-ring"></div>
+      <div class="loading-title">AI 正在核验商品编码…</div>
+      <div class="loading-step">${cur ? `正在核验第 ${cur.no} / ${items.length} 项：${cur.name}` : "正在生成核验结论…"}</div>
+      <div class="progress"><div class="progress-bar" style="width:${pct}%"></div></div>
+      <div class="progress-txt">已完成 ${doneCount} / ${items.length} 项</div>
+      <div class="task-list">
+        ${items.map((it, i) => {
+          const cls = i < doneCount ? "done" : (i === runningIdx ? "run" : "");
+          return `<div class="task-row ${cls}">
+            <span class="task-dot"></span>
+            <span class="task-no">${it.no}</span>
+            <span>${it.name}</span>
+          </div>`;
+        }).join("")}
+      </div>
+    </div>
+  `;
+}
+
+function startVerify() {
+  setView("loading");
+  let i = 0;
+  renderLoading(0, 0);
+  clearInterval(runTimer);
+  runTimer = setInterval(() => {
+    i++;
+    renderLoading(i, i);
+    if (i >= items.length) {
+      clearInterval(runTimer);
+      setTimeout(() => {
+        lastVerify = nowStamp();
+        $("lastVerify").textContent = lastVerify;
+        verified = true;
+        setView("result");
+        const p = items.filter(x => x.adoptedIdx === null && x.status === "pass").length;
+        const w = items.filter(x => x.adoptedIdx === null && x.status === "warn").length;
+        const f = items.filter(x => x.adoptedIdx === null && x.status === "fail").length;
+        const fx = adoptedCount();
+        toast(`核验完成：通过 ${p} · 疑点 ${w} · 不通过 ${f}${fx ? ` · 已修正 ${fx}` : ""}`);
+      }, 500);
+    }
+  }, 420);
 }
 
 // 说明气泡：点击 icon 显示/隐藏（移入由 CSS :hover 处理）
@@ -675,7 +823,7 @@ document.addEventListener("click", e => {
 });
 
 renderForm();
-renderAll();
+setView("confirm");
 </script>
 </body>
 </html>
